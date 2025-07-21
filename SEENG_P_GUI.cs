@@ -169,8 +169,8 @@ namespace SEENG_Core
             // More info
             var infoText = new MyGuiControlLabel(
                 position: new Vector2(0.35f, -0.15f),
-                text: "This mod is in very active developmen\nexpect many bugs and crashes\nengines may sound incorect due to\nsome features wasnt" +
-                " finished atm\n\nreport any problems n suggestions\nto ma beautiful discord (scary place)\n" +
+                text: "This mod is in very active development\nexpect many bugs and crashes\nengines may sound incorect due to\nsome features are" +
+                " not finished yet\n\nreport any problems n suggestions\nto ma beautiful discord (scary place)\n" +
                 "\nthe max speed defines at what\nspeed engine hits its peak sound",
                 colorMask: Color.LightGray.ToVector4(),
                 textScale: 0.9f,
