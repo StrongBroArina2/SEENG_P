@@ -20,38 +20,79 @@ namespace SEENG_Core
 {
     public class DefRecCon
     {
-        public void PreloadWavFiles(string gameContentPath, List<WorkshopMod> workshopMods)
+        private readonly List<(List<string> files, long cleanupFrame)> _pendingCleanups = new List<(List<string>, long)>();
+        public void Update()
         {
-            string gameAudioPath = Path.Combine(gameContentPath, "Audio");
-            Directory.CreateDirectory(gameAudioPath);
-
-            foreach (var mod in workshopMods)
+            long currentFrame = MyAPIGateway.Session.GameplayFrameCounter;
+            for (int i = _pendingCleanups.Count - 1; i >= 0; i--)
             {
-                if (Directory.Exists(mod.ArcShipSysPath))
+                var (files, cleanupFrame) = _pendingCleanups[i];
+                if (currentFrame >= cleanupFrame)
                 {
-                    foreach (string wavFile in Directory.GetFiles(mod.ArcShipSysPath, "*.wav", SearchOption.AllDirectories))
+                    MyLog.Default.WriteLine($"SEENGCore: Files loaded into memory.");
+                    foreach (string wavFile in files)
                     {
                         try
                         {
-                            string fileName = Path.GetFileName(wavFile);
-                            string destPath = Path.Combine(gameAudioPath, fileName);
-                            File.Copy(wavFile, destPath, true);
-                            MyLog.Default.WriteLine($"SEENGCore: Copied WAV file: {fileName} to {destPath}");
+                            if (File.Exists(wavFile))
+                            {
+                                File.Delete(wavFile);
+                                MyLog.Default.WriteLine($"SEENGCore: WAV nomore: {wavFile}");
+                            }
+                            else
+                            {
+                                MyLog.Default.WriteLine($"SEENGCore: WAV file not: {wavFile}");
+                            }
                         }
                         catch (Exception e)
                         {
-                            MyLog.Default.WriteLine($"SEENGCore: Failed to copy WAV file {wavFile}: {e.Message}");
+                            MyLog.Default.WriteLine($"SEENGCore: Fail to {wavFile}: {e.Message}");
                         }
                     }
+                    MyLog.Default.WriteLine("SEENGCore: WAV file completed.");
+                    _pendingCleanups.RemoveAt(i);
                 }
             }
         }
 
-        public void ReloadDefinitions(WorkshopMod currentMod, bool respawnGrids = false, bool respawnPlanets = false)
+        public void ReloadDefinitions(WorkshopMod currentMod, string gameContentPath)
         {
             try
             {
-                // mod lsit
+                List<string> copiedWavFiles = new List<string>();
+                if (currentMod != null)
+                {
+                    string gameAudioPath = Path.Combine(gameContentPath, "Audio");
+                    Directory.CreateDirectory(gameAudioPath);
+
+                    if (!string.IsNullOrEmpty(currentMod.ArcShipSysPath) && Directory.Exists(currentMod.ArcShipSysPath))
+                    {
+                        foreach (string wavFile in Directory.GetFiles(currentMod.ArcShipSysPath, "*.wav", SearchOption.AllDirectories))
+                        {
+                            try
+                            {
+                                string fileName = Path.GetFileName(wavFile);
+                                string destPath = Path.Combine(gameAudioPath, fileName);
+                                File.Copy(wavFile, destPath, true);
+                                copiedWavFiles.Add(destPath); 
+                            }
+                            catch (Exception e)
+                            {
+                                MyLog.Default.WriteLine($"SEENGCore: Failed to WAV{wavFile}: {e.Message}");
+                            }
+                        }
+                    }
+                    else
+                    {
+                        MyLog.Default.WriteLine($"SEENGCore: Invalid or missing ArcShipSysPath for mod: {currentMod.ModPath}");
+                    }
+                }
+                else
+                {
+                    MyLog.Default.WriteLine("SEENGCore: No mod selected for WAV file.");
+                }
+
+                // modlist 
                 var modsToLoad = new List<MyObjectBuilder_Checkpoint.ModItem>();
                 foreach (var mod in MyAPIGateway.Session.Mods)
                 {
@@ -87,62 +128,57 @@ namespace SEENG_Core
                     var blockDef = def as MyCubeBlockDefinition;
                     if (blockDef != null)
                     {
-                        blockDef.BlockVariantsGroup = null; //MyToolbarItemCubeBlock
+                        blockDef.BlockVariantsGroup = null;
                     }
                 }
 
-                //  ENV
+                // EVB
                 MyEnvironmentDefinition oldEnvDef = MyDefinitionManager.Static.EnvironmentDefinition;
-                MyDefinitionErrors.Add(null, "Definitions SBCs reloaded, SBC errors earlier than this can be ignored.", TErrorSeverity.Warning, true);
+                MyDefinitionErrors.Add(null, "SBC errors earlier than this can be ignored.", TErrorSeverity.Warning, true);
 
-                // RELOAD
+                // Reload
                 MyDefinitionManager.Static.UnloadData();
                 MyDefinitionManager.Static.LoadData(modsToLoad);
+                if (copiedWavFiles.Count > 0)
+                {
+                    long cleanupFrame = MyAPIGateway.Session.GameplayFrameCounter + 300; 
+                    _pendingCleanups.Add((copiedWavFiles, cleanupFrame));                   
+                }
 
-                // 6. ENV2
+                // ENV2
                 MyEnvironmentDefinition newEnvDef = MyDefinitionManager.Static.GetDefinition<MyEnvironmentDefinition>(MyStringHash.GetOrCompute("Default"));
                 if (newEnvDef != null && oldEnvDef != null)
                 {
                     oldEnvDef.Merge(newEnvDef);
-                }               
-                else
-                {
-                    MyAPIGateway.Utilities.ShowMessage("SEENGCore", "Engine refited!");
                 }
+                MyAPIGateway.Utilities.ShowMessage("SEENG", "Engine refited!");
 
-                // hud + snd
+                // snd n hud fix
                 FixSoundVolume();
                 RefreshHudDefinition();
             }
             catch (Exception e)
             {
                 MyLog.Default.WriteLine($"SEENGCore: Failed to reload definitions: {e.Message}");
-                MyAPIGateway.Utilities.ShowMessage("SEENGCore", "Failed to reload SBC.");
+                MyAPIGateway.Utilities.ShowMessage("SEENGCore", "Failed to refit engine. Check log for details.");
             }
         }
-
         private void FixSoundVolume()
         {
             try
             {
-                float gameVolume = 1f;
-                float musicVolume = 1f;
-                float voiceChatVolume = 1f;
-
-                IMyConfig userCfg = MyAPIGateway.Session?.Config;
+                var userCfg = MyAPIGateway.Session?.Config;
                 if (userCfg != null)
                 {
-                    gameVolume = userCfg.GameVolume;
-                    musicVolume = userCfg.MusicVolume;
-                    voiceChatVolume = userCfg.VoiceChatVolume;
+                    MyVisualScriptLogicProvider.SetVolumeLocal(
+                        userCfg.GameVolume,
+                        userCfg.MusicVolume,
+                        userCfg.VoiceChatVolume);
                 }
-
-                MyVisualScriptLogicProvider.SetVolumeLocal(gameVolume, musicVolume, voiceChatVolume);
             }
             catch (Exception e)
             {
                 MyLog.Default.WriteLine($"SEENGCore: Failed to reset sound volume: {e.Message}");
-                MyAPIGateway.Utilities.ShowMessage("SEENGCore", "ERROR: Failed to reset sound volume. Try to re-enter cockpit.");
             }
         }
 
@@ -164,7 +200,6 @@ namespace SEENG_Core
                     MyCharacterDefinition charDef = (MyCharacterDefinition)character.Definition;
                     charHud = charDef.HUD;
                 }
-
                 foreach (MyEntity ent in MyEntities.GetEntities())
                 {
                     var existingGrid = ent as MyCubeGrid;
@@ -181,7 +216,6 @@ namespace SEENG_Core
                         return;
                     }
                 }
-
                 MyCockpitDefinition anyCockpitDef = MyDefinitionManager.Static.GetAllDefinitions().FirstOrDefault(d => d is MyCockpitDefinition) as MyCockpitDefinition;
                 if (anyCockpitDef == null)
                     throw new Exception("No cockpit blocks exist in your world!");
@@ -248,7 +282,7 @@ namespace SEENG_Core
         {
             protected override void UpdateCameraAfterChange(bool resetHeadLocalAngle = true)
             {
-                //OnAssumeControl
+                // OnAssumeControl
             }
         }
     }
