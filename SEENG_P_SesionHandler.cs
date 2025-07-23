@@ -10,7 +10,7 @@ using VRage.Game;
 
 namespace SEENG_Core
 {
-    [MySessionComponentDescriptor(MyUpdateOrder.BeforeSimulation)]
+    [MySessionComponentDescriptor(MyUpdateOrder.AfterSimulation)] 
     public class SessionHandler : MySessionComponentBase
     {
         private bool _isInitialized = false;
@@ -26,8 +26,15 @@ namespace SEENG_Core
             MyLog.Default.WriteLine($"SEENGCore: Game Content Path set to: {_gameContentPath}");
             MyAPIGateway.Utilities.MessageEntered += OnMessageEntered;
             _loader.PopulateWorkshopMods();
-            _defRecCon.PreloadWavFiles(_gameContentPath, _loader.WorkshopMods);
             _isInitialized = true;
+        }
+
+        public override void UpdateAfterSimulation()
+        {
+            if (_isInitialized)
+            {
+                _defRecCon.Update(); 
+            }
         }
 
         private void OnMessageEntered(string messageText, ref bool sendToOthers)
@@ -47,15 +54,41 @@ namespace SEENG_Core
         private void OnModSelected(WorkshopMod selectedMod)
         {
             _currentMod = selectedMod;
-            ModManager.UpdateMod(_currentMod); // мэнаджар бургераф
-            _defRecCon.ReloadDefinitions(_currentMod); // ориг
+            ModManager.UpdateMod(_currentMod);
+            if (string.IsNullOrEmpty(_gameContentPath))
+            {
+                MyLog.Default.WriteLine("SEENGCore: Error: Game content path is null or empty.");
+                MyAPIGateway.Utilities.ShowMessage("SEENGCore", "Error: Cannot access game content path.");
+                return;
+            }
+            MyLog.Default.WriteLine($"SEENGCore: Calling ReloadDefinitions for mod: {_currentMod?.ModPath ?? "None"}");
+            _defRecCon.ReloadDefinitions(_currentMod, _gameContentPath); 
         }
 
         protected override void UnloadData()
         {
             MyAPIGateway.Utilities.MessageEntered -= OnMessageEntered;
             _currentMod = null;
-            ModManager.UpdateMod(null); // состояние
+            ModManager.UpdateMod(null);
+
+            // Резервная очистка .wav файлов при выгрузке
+            string gameAudioPath = Path.Combine(_gameContentPath, "Audio");
+            if (Directory.Exists(gameAudioPath))
+            {
+                foreach (string wavFile in Directory.GetFiles(gameAudioPath, "*.wav"))
+                {
+                    try
+                    {
+                        File.Delete(wavFile);
+                        MyLog.Default.WriteLine($"SEENGCore: Cleaned up WAV file on unload: {wavFile}");
+                    }
+                    catch (Exception e)
+                    {
+                        MyLog.Default.WriteLine($"SEENGCore: Failed to clean up WAV file on unload {wavFile}: {e.Message}");
+                    }
+                }
+            }
+
             base.UnloadData();
         }
     }
