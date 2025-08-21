@@ -112,26 +112,6 @@ namespace SEENG_Core
                     MyLog.Default.WriteLine($"SEENGCore: Added mod to load: {currentMod.ModPath}");
                 }
 
-                // old defs
-                foreach (MyDefinitionBase def in MyDefinitionManager.Static.GetAllDefinitions())
-                {
-                    if (def.DisplayNameEnum.HasValue)
-                    {
-                        def.DisplayNameString = "(OLD) " + MyTexts.GetString(def.DisplayNameEnum.Value);
-                        def.DisplayNameEnum = null;
-                    }
-                    else if (!string.IsNullOrEmpty(def.DisplayNameString))
-                    {
-                        def.DisplayNameString = "(OLD) " + def.DisplayNameString;
-                    }
-
-                    var blockDef = def as MyCubeBlockDefinition;
-                    if (blockDef != null)
-                    {
-                        blockDef.BlockVariantsGroup = null;
-                    }
-                }
-
                 // EVB
                 MyEnvironmentDefinition oldEnvDef = MyDefinitionManager.Static.EnvironmentDefinition;
                 MyDefinitionErrors.Add(null, "SBC errors earlier than this can be ignored.", TErrorSeverity.Warning, true);
